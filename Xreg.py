@@ -54,14 +54,20 @@ class XregParser():
         for p in self.__root.iter("peripheral"):
             for i in p.findall("name"):
                 periphName = i.text
-                periphDict[periphName] = dict()
+                try:
+                    periphDict[periphName] = periphDict[p.attrib["derivedFrom"]] # Derived from another peripheral
+                except KeyError:
+                    periphDict[periphName] = dict()
+
+                # if p.attrib["derivedFrom"] == None:
+                #     periphDict[periphName] = dict()
+                # else:
+                #     print p.attrib["derivedFrom"]
+                #     periphDict[periphName] = periphDict[p.attrib["derivedFrom"]] # Derived from another peripheral
             for i in p.findall("description"):
                 periphDict[periphName]["description"] = i.text
             for i in p.findall("baseAddress"):
                 periphDict[periphName]["baseAddress"] = int(i.text, 0)
-            # for i in p.findall("addressBlock"):
-            #     for j in i.findall("size"):
-            #         periphDict[periphName]["size"] = int(j.text, 0)
 
             periphDict[periphName]["register"] = dict()
             periphDict[periphName]["registerList"] = []
@@ -101,6 +107,13 @@ class XregParser():
             for i in range(self.get_reg_count(periph)):
                 print "%s = 0x%08x" % (self.__periphDict[periph]["registerList"][i], val[i])
     
+    @property
+    def periph_list(self):
+        return sorted(self.__periphDict.keys())
+
+    def register_list(self, periph):
+        return self.__periphDict[periph]["registerList"]
+    
     def get_reg_count(self, periph):
         return len(self.__periphDict[periph]["registerList"]) 
 
@@ -139,9 +152,24 @@ class XregShowCommand(gdb.Command):
     def complete(self, arg, from_tty): # Auto-completion
         pass
 
+class XregListCommand(gdb.Command):
+    def __init__(self):
+        super(XregListCommand, self).__init__("xreg list", gdb.COMMAND_SUPPORT)
+
+    def invoke(self, arg, from_tty):
+        if arg == "":
+            for p in xp.periph_list:
+                print "[Xreg] %s" % p
+        elif arg in xp.periph_list:
+            for r in xp.register_list(arg):
+                print "[Xreg] %s" % r
+        else:
+            print "[Xreg] Given peripheral doesn't exist"
+
 XregPrefixCommand()
 XregLoadCommand()
 XregShowCommand()
+XregListCommand()
 
 if __name__ == "__main__":
     pass
