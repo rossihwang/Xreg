@@ -1,10 +1,10 @@
 import xml.etree.ElementTree as ET 
 import gdb
 import struct
+import copy
 '''
 TODO:
-1. GPIOC, D, E, H... can't derive from GPIOB
-2. Design a command to tells how the register is modified.
+1. Design a command to tells how the register is modified.
 
 peripDict structure
 {
@@ -37,6 +37,7 @@ class XregParser():
         self.__periphDict = self.generate_periph_dict()
         self.__isSvdLoaded = True
         print "[Xreg] Load %s." % filePath
+        # print self.__periphDict
 
     def print_periph_dict(self):
         if self.__isSvdLoaded == True:
@@ -51,37 +52,41 @@ class XregParser():
         periphDict = dict()
         periphName = ""
         regName = ""
+        
         for p in self.__root.iter("peripheral"):
+            isDerived = False
             for i in p.findall("name"):
                 periphName = i.text
                 try:
-                    periphDict[periphName] = periphDict[p.attrib["derivedFrom"]] # Derived from another peripheral
+                    periphDict[periphName] = copy.deepcopy(periphDict[p.attrib["derivedFrom"]]) # Derived from another peripheral
+                    isDerived = True
                 except KeyError:
                     periphDict[periphName] = dict()
 
-                # if p.attrib["derivedFrom"] == None:
-                #     periphDict[periphName] = dict()
-                # else:
-                #     print p.attrib["derivedFrom"]
-                #     periphDict[periphName] = periphDict[p.attrib["derivedFrom"]] # Derived from another peripheral
-            for i in p.findall("description"):
-                periphDict[periphName]["description"] = i.text
-            for i in p.findall("baseAddress"):
+            for i in p.findall("baseAddress"): # This part will be override
                 periphDict[periphName]["baseAddress"] = int(i.text, 0)
 
-            periphDict[periphName]["register"] = dict()
-            periphDict[periphName]["registerList"] = []
-            for r in p.iter("register"):
-                for i in r.findall("name"):
-                    regName = i.text
-                    periphDict[periphName]["registerList"].append(regName)
-                    periphDict[periphName]["register"][regName] = dict()
-                for i in r.findall("description"):
-                    periphDict[periphName]["register"][regName]["description"] = i.text
-                for i in r.findall("addressOffset"):
-                    periphDict[periphName]["register"][regName]["addressOffset"] = int(i.text, 0)
-                for i in r.findall("resetValue"):
-                    periphDict[periphName]["register"][regName]["resetValue"] = int(i.text, 0)
+            if isDerived == False:
+                for i in p.findall("description"):
+                    periphDict[periphName]["description"] = i.text
+
+                for i in p.findall("baseAddress"):
+                    periphDict[periphName]["baseAddress"] = int(i.text, 0)
+
+                periphDict[periphName]["register"] = dict()
+                periphDict[periphName]["registerList"] = []
+                for r in p.iter("register"):
+                    for i in r.findall("name"):
+                        regName = i.text
+                        periphDict[periphName]["registerList"].append(regName)
+                        periphDict[periphName]["register"][regName] = dict()
+                    for i in r.findall("description"):
+                        periphDict[periphName]["register"][regName]["description"] = i.text
+                    for i in r.findall("addressOffset"):
+                        periphDict[periphName]["register"][regName]["addressOffset"] = int(i.text, 0)
+                    for i in r.findall("resetValue"):
+                        periphDict[periphName]["register"][regName]["resetValue"] = int(i.text, 0)
+
         print "[Xreg] Periphal dictionary generated."
         return periphDict
     
@@ -140,10 +145,15 @@ class XregShowCommand(gdb.Command):
     def invoke(self, arg, from_tty):
         if '_' in arg:
             p, r = arg.split('_')
-            regCount = 1
         else:
             p, r = arg, None
-            regCount = xp.get_reg_count(p)
+        if p not in xp.periph_list:
+            print "[Xreg] Given peripheral doesn't exist"
+            return 
+        if (r != None) and (r not in xp.register_list(p)):
+            print "[Xreg] Given register doesn't exist"
+            return 
+        regCount = 1 if r != None else xp.get_reg_count(p)
         addr = xp.get_reg_addr(p, r)
         buff = gdb.inferiors()[0].read_memory(addr, 4*regCount)
         val = struct.unpack("I"*regCount, buff)
