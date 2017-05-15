@@ -2,14 +2,29 @@ import xml.etree.ElementTree as ET
 import gdb
 import struct
 '''
-peripherals(name, base address, description, registers(dictionary), size)
-registsters(name, description, offset, reset value)
-
-It'd better tells difference between the reset value
-
-bugs
+TODO:
 1. GPIOC, D, E, H... can't derive from GPIOB
-2.
+2. Design a command to tells how the register is modified.
+
+peripDict structure
+{
+    "PERIP1": {
+        "baseAddress": number,
+        "description": string,
+        "size": number, # size in bit
+        "registerList": [REG1, REG2, ...]
+        "register": {
+            "REG1": {
+                "description": string,
+                "addressOffset": number,
+                "resetValue": number,
+            }
+            "REG2": {
+                ...
+            }
+        }
+    }
+}
 '''
 
 class XregParser():
@@ -44,13 +59,16 @@ class XregParser():
                 periphDict[periphName]["description"] = i.text
             for i in p.findall("baseAddress"):
                 periphDict[periphName]["baseAddress"] = int(i.text, 0)
-            for i in p.findall("addressBlock"):
-                for j in i.findall("size"):
-                    periphDict[periphName]["size"] = int(j.text, 0)
+            # for i in p.findall("addressBlock"):
+            #     for j in i.findall("size"):
+            #         periphDict[periphName]["size"] = int(j.text, 0)
+
             periphDict[periphName]["register"] = dict()
+            periphDict[periphName]["registerList"] = []
             for r in p.iter("register"):
                 for i in r.findall("name"):
                     regName = i.text
+                    periphDict[periphName]["registerList"].append(regName)
                     periphDict[periphName]["register"][regName] = dict()
                 for i in r.findall("description"):
                     periphDict[periphName]["register"][regName]["description"] = i.text
@@ -61,10 +79,13 @@ class XregParser():
         print "[Xreg] Periphal dictionary generated."
         return periphDict
     
-    def get_reg_addr(self, periph, reg):
-        return self.__periphDict[periph]["register"][reg]["addressOffset"] + self.__periphDict[periph]["baseAddress"]
+    def get_reg_addr(self, periph, reg=None):
+        if reg == None:
+            return self.__periphDict[periph]["baseAddress"]
+        else:
+            return self.__periphDict[periph]["register"][reg]["addressOffset"] + self.__periphDict[periph]["baseAddress"]
 
-    def is_reg_modified(self, periph, reg):
+    def show_changes(self, periph, reg):
         pass
 
     def get_periph_description(self, periph, reg=None):
@@ -74,8 +95,14 @@ class XregParser():
             return self.__periphDict[periph]["register"][reg]["description"]
 
     def print_reg(self, periph, val, reg=None):
-        # if reg == None:
-        print "0x%08x" % val
+        if reg != None:
+            print "0x%08x" % val
+        else:
+            for i in range(self.get_reg_count(periph)):
+                print "%s = 0x%08x" % (self.__periphDict[periph]["registerList"][i], val[i])
+    
+    def get_reg_count(self, periph):
+        return len(self.__periphDict[periph]["registerList"]) 
 
 xp = XregParser()
 
@@ -98,11 +125,16 @@ class XregShowCommand(gdb.Command):
         super(XregShowCommand, self).__init__("xreg show", gdb.COMMAND_SUPPORT)
 
     def invoke(self, arg, from_tty):
-        p, r = arg.split('_')
+        if '_' in arg:
+            p, r = arg.split('_')
+            regCount = 1
+        else:
+            p, r = arg, None
+            regCount = xp.get_reg_count(p)
         addr = xp.get_reg_addr(p, r)
-        buff = gdb.inferiors()[0].read_memory(addr, 4)
-        val = struct.unpack("I", buff)[0]
-        xp.print_reg(arg, val)
+        buff = gdb.inferiors()[0].read_memory(addr, 4*regCount)
+        val = struct.unpack("I"*regCount, buff)
+        xp.print_reg(p, val, reg=r)
         
     def complete(self, arg, from_tty): # Auto-completion
         pass
@@ -113,7 +145,3 @@ XregShowCommand()
 
 if __name__ == "__main__":
     pass
-    # xp = XregParser()
-    # xp.load_svd_file("STM32L053x.svd")
-    # print("0x%08x" % xp.get_reg_addr("TIM2", "CR2"))
-    # xp.print_periph_dict()
